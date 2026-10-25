@@ -250,6 +250,7 @@ details ul{padding-left:1.2em;margin:0;display:flex;flex-direction:column;gap:6p
     </div>
     <p class="note" id="gNote" style="margin-top:8px"></p>
     <div class="ai-out" id="gOut" style="margin-top:10px"></div>
+    <details id="gRaw" hidden style="margin-top:8px"><summary>Ver lo que devolvió Claude (para diagnosticar)</summary><pre id="gRawTxt" style="white-space:pre-wrap;font-size:.78rem;line-height:1.4;overflow-wrap:anywhere"></pre></details>
     <p class="note" style="margin-top:12px">Ojo: el caso lo redacta una IA. La situación y la rúbrica son útiles para practicar, pero verificá cada artículo citado contra la pestaña Guía antes de memorizarlo.</p>
   </section>
   <section class="card" style="margin-top:12px">
@@ -1197,7 +1198,7 @@ const el={intro:$('#intro'),caso:$('#caso'),res:$('#resultado'),foja:$('#foja'),
  rScore:$('#rScore'),rVerdict:$('#rVerdict'),rTime:$('#rTime'),bars:$('#bars'),impBox:$('#impBox'),items:$('#items'),btnAI:$('#btnAI'),btnAIStop:$('#btnAIStop'),btnCopiar:$('#btnCopiar'),aiNote:$('#aiNote'),aiOut:$('#aiOut'),
  modelo:$('#modelo'),trampas:$('#trampas'),normas:$('#normas'),btnOtro:$('#btnOtro'),btnRepetir:$('#btnRepetir'),lista:$('#lista'),toast:$('#toast'),solo:$('#soloPendientes'),
  modoCompleta:$('#modoCompleta'),modoPregunta:$('#modoPregunta'),
- gNivel:$('#gNivel'),gTema:$('#gTema'),gTema2:$('#gTema2'),gExtra:$('#gExtra'),btnGenerar:$('#btnGenerar'),btnGenerarStop:$('#btnGenerarStop'),gNote:$('#gNote'),gOut:$('#gOut'),gCount:$('#gCount'),btnBorrarGen:$('#btnBorrarGen')};
+ gNivel:$('#gNivel'),gTema:$('#gTema'),gTema2:$('#gTema2'),gExtra:$('#gExtra'),btnGenerar:$('#btnGenerar'),btnGenerarStop:$('#btnGenerarStop'),gNote:$('#gNote'),gOut:$('#gOut'),gCount:$('#gCount'),btnBorrarGen:$('#btnBorrarGen'),gRaw:$('#gRaw'),gRawTxt:$('#gRawTxt')};
 
 function toast(m){el.toast.textContent=m;el.toast.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.toast.classList.remove('show'),2600)}
 function fmt(s){s=Math.max(0,Math.floor(s));return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
@@ -1481,11 +1482,34 @@ FORMATO DE SALIDA: respondé ÚNICAMENTE con un objeto JSON válido, sin texto a
 "trampas":["3 a 5 errores concretos que descalifican en este caso"],
 "normas":["3 a 5 líneas con las normas para citar, como 'Ley 9120 arts. 7, 8, 88'"]}
 
-Reglas de la rúbrica: 9 a 11 ítems; "c" es A (análisis del caso), T (fundamentación técnica), R (articulación teórico-práctica), N (manejo normativo) o C (claridad expositiva); al menos 2 de A, 3 de T, 2 de R, 2 de N y 1 de C; "p" entre 4 y 8; "imp": true solo en 1 o 2 ítems que, si faltan, desaprueban (típicamente el límite del rol o la protección de la víctima). Las "kw" (3 a 8 por ítem) son palabras o raíces en minúscula y sin tildes que de verdad aparecerían en una transcripción de voz si la postulante dijo ese contenido ("revictimiz", "entrevist", "riesgo alto", "art 88"), nunca frases largas. Usá comillas dobles, escapá las comillas internas con \\", sin comas finales, sin comentarios.`;
+Reglas de la rúbrica: 9 a 11 ítems; "c" es A (análisis del caso), T (fundamentación técnica), R (articulación teórico-práctica), N (manejo normativo) o C (claridad expositiva); al menos 2 de A, 3 de T, 2 de R, 2 de N y 1 de C; "p" entre 4 y 8; "imp": true solo en 1 o 2 ítems que, si faltan, desaprueban (típicamente el límite del rol o la protección de la víctima). Las "kw" (3 a 8 por ítem) son palabras o raíces en minúscula y sin tildes que de verdad aparecerían en una transcripción de voz si la postulante dijo ese contenido ("revictimiz", "entrevist", "riesgo alto", "art 88"), nunca frases largas. JSON estricto: claves y valores entre comillas dobles rectas; DENTRO de los valores no uses nunca comillas dobles rectas (para citar textual usá comillas tipográficas “ ” o simples), no uses saltos de línea dentro de los valores, sin comas finales, sin comentarios.`;
+}
+function jsonTolerante(src){
+  try{return JSON.parse(src)}catch(e){}
+  let s=src.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,' ').replace(/\r?\n|\t/g,' ').replace(/[“”]/g,'“');
+  try{return JSON.parse(s)}catch(e){}
+  /* repara comillas dobles sin escapar dentro de los valores y comas finales */
+  let out='',inStr=false;
+  for(let i=0;i<s.length;i++){
+    const ch=s[i];
+    if(!inStr){if(ch==='"')inStr=true;out+=ch;continue}
+    if(ch==='\\'){out+=ch+(s[i+1]||'');i++;continue}
+    if(ch==='"'){
+      let j=i+1;while(j<s.length&&s[j]===' ')j++;
+      const nx=s[j];let cierra=false;
+      if(nx===undefined||nx==='}'||nx===']'||nx===':')cierra=true;
+      else if(nx===','){let k=j+1;while(k<s.length&&s[k]===' ')k++;cierra=/^("|\{|\[|-|[0-9]|true\b|false\b|null\b)/.test(s.slice(k,k+6))}
+      if(cierra){inStr=false;out+=ch}else out+='\\"';
+      continue;
+    }
+    out+=ch;
+  }
+  s=out.replace(/,\s*([}\]])/g,'$1');
+  return JSON.parse(s);
 }
 function parseCaso(texto){
   const a=texto.indexOf('{'),b=texto.lastIndexOf('}');if(a<0||b<=a)throw new Error('sin json');
-  const g=JSON.parse(texto.slice(a,b+1));
+  const g=jsonTolerante(texto.slice(a,b+1));
   const str=x=>String(x==null?'':x).trim();const arr=x=>Array.isArray(x)?x.map(str).filter(Boolean):[];
   const c={titulo:str(g.titulo).slice(0,90)||'Caso generado',tags:arr(g.tags).slice(0,3),juzgado:str(g.juzgado)||'Juzgado de Familia y Violencia Familiar – Primera Circunscripción Judicial',caratula:str(g.caratula)||'(carátula reservada)',relato:str(g.relato),pedido:str(g.pedido),preguntas:arr(g.preguntas).slice(0,3),
     rubrica:(Array.isArray(g.rubrica)?g.rubrica:[]).map(it=>({c:/^[ATRNC]$/.test(it&&it.c)?it.c:'T',t:str(it&&it.t),p:Math.min(10,Math.max(2,Number(it&&it.p)||5)),kw:arr(it&&it.kw).map(k=>norm(k).trim()).filter(k=>k.length>=2),imp:!!(it&&it.imp)})).filter(it=>it.t&&it.kw.length),
@@ -1511,7 +1535,9 @@ el.btnGenerar.addEventListener('click',async()=>{
   const nivelElegido=Number(el.gNivel.value)||2;
   const r=await runAI(buildGenPrompt(),uiGen,'generar');
   if(!r||!r.ok){if(!el.gNote.textContent)el.gNote.textContent='No se pudo generar el caso. Probá de nuevo.';el.gOut.textContent='';return}
-  let c;try{c=parseCaso(r.texto)}catch(e){el.gOut.textContent='';el.gNote.textContent='El caso llegó mal armado (pasa a veces). Tocá "Generar caso" de nuevo.';return}
+  let c;try{c=parseCaso(r.texto)}catch(e){el.gOut.textContent='';el.gNote.textContent='El caso llegó mal armado (pasa a veces). Tocá "Generar caso" de nuevo.';
+    el.gRaw.hidden=false;el.gRawTxt.textContent='Error: '+(e&&e.message||e)+'\n\n'+r.texto.slice(0,4000);return}
+  el.gRaw.hidden=true;
   el.gNivel.value=String(nivelElegido);const h=addGenerado(c);el.gOut.textContent='';el.gNote.textContent='';renderGenCount();
   toast('Caso nuevo listo: ya está en la pestaña Casos');openCase(h,{text:'',q:[]});
 });
